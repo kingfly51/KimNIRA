@@ -178,9 +178,15 @@ kimCentrality <- function(fit,
   )
 
   # Direction sanity check
+  J_for_cent <- J
+  diag(J_for_cent) <- 0
+
+  # 方向一致性校验（仅针对非对角线）
   stopifnot(
-    isTRUE(all.equal(unname(temporal_df$InStrength),  unname(rowSums(abs(J))))),
-    isTRUE(all.equal(unname(temporal_df$OutStrength), unname(colSums(abs(J)))))
+    isTRUE(all.equal(unname(temporal_df$InStrength),  
+                     unname(rowSums(abs(J_for_cent))))),
+    isTRUE(all.equal(unname(temporal_df$OutStrength), 
+                     unname(colSums(abs(J_for_cent)))))
   )
 
   if (verbose) {
