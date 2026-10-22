@@ -34,10 +34,11 @@ install.packages(c("qgraph", "Matrix", "dplyr", "parallel", "testthat"))
 
 ### 2. 安装 KimNIRA
 
-**从源码 tarball 安装：**
+**从源码github安装：**
 
 ```r
-install.packages("KimNIRA_0.4.0.tar.gz", repos = NULL, type = "source")
+# install.packages("remotes")
+remotes::install_github("kingfly51/KimNIRA")
 ```
 
 **或在命令行：**
