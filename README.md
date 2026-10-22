@@ -190,6 +190,7 @@ cent$between    # Strength / Closeness / Betweenness / ExpectedInfluence
 ```r
 res    <- runKIMNIRA(fit, method = "exact", intervention_type = "alleviating",
                      intervention_sd = 2, verbose = FALSE)
+#注意，mc和exact是两种不同的方法，使用时仅使用一个即可，当节点数较少时可以使用exact,这个说精确的，当节点数较多时使用蒙罗卡罗模拟MC
 res_mc <- runKIMNIRA(fit, method = "mc",    intervention_type = "alleviating",
                      intervention_sd = 2, verbose = FALSE)
 
