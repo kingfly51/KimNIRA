@@ -392,19 +392,7 @@ system.file("tutorials/tutorial_kimNIRA.R", package = "KimNIRA")
 
 ---
 
-## 版本说明
 
-**0.4.0 的主要变化：**
-
-- 估计结构改为 **两阶段**：先做边筛选（BH-FDR / Bonferroni / 不筛选），再对保留的边**无惩罚重估**；
-- 移除 L1 罚路径、`glmnet` 依赖、`between_person = "pooled"`；
-- 新增 `screen`、`stage1_beta`、`stage1_se`、`support`、`screen_threshold`；
-- `kimMarkovCheck()` 不再有惩罚分支；
-- `kimPlotNIRA()` 新增 `p_adjust`；
-- `kimPlotTrajectory(type = "node")` 用蓝色线标识靶点并加图例；
-- 并行 bootstrap 直接 `library(KimNIRA)`，不再依赖 `pkgload` 开发态加载。
-
-详见 `NEWS.md`。
 
 ---
 
