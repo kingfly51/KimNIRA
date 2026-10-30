@@ -374,27 +374,28 @@ kimCentrality <- function(fit,
     values_to = "Value"
   )
 
-  ggplot2::ggplot(
-    long,
-    ggplot2::aes(
-      x = .data$Value,
-      y = stats::reorder(.data$Node, .data$Value)
-    )
-  ) +
+  long$Index <- factor(long$Index,
+                       levels = c("Strength", "EI", "Closeness", "Betweenness"))
+  
+  long$Node_panel <- paste(long$Node, as.character(long$Index), sep = "___")
+  long$Node_panel <- stats::reorder(long$Node_panel, long$Value)
+
+  ggplot2::ggplot(long, ggplot2::aes(x = .data$Value, y = .data$Node_panel)) +
     ggplot2::geom_line(
-      ggplot2::aes(group = .data$Node),
-      colour  = "grey75",
+      ggplot2::aes(group = .data$Index),   # 每个面板内一条折线，沿 Node 顺序连
+      colour    = "grey75",
       linewidth = 0.4
     ) +
     ggplot2::geom_point(size = 2.5, colour = "#2A9D8F") +
-    ggplot2::facet_wrap(~ Index, nrow = 1) +
+    ggplot2::facet_wrap(~ Index, nrow = 1, scales = "free_y") +
+    ggplot2::scale_y_discrete(
+      labels = function(lv) sub("___.*$", "", lv)   # 剥掉 "___Index" 后缀再显示
+    ) +
     ggplot2::labs(
       title = "Between-Subject Network Centrality (z-scores)",
       x     = NULL,
       y     = NULL
     ) +
     ggplot2::theme_minimal(base_size = 13) +
-    ggplot2::theme(
-      panel.grid.major.y = ggplot2::element_blank()
-    )
+    ggplot2::theme(panel.grid.major.y = ggplot2::element_blank())
 }
