@@ -28,7 +28,8 @@ fitKIM(
   beepvar = NULL,
   allow_overnight = FALSE,
   time_unit = "auto",
-  beeps_per_day = NULL
+  beeps_per_day = NULL,
+  support = NULL
 )
 }
 \arguments{
@@ -64,10 +65,11 @@ explicitly always wins over the rule.}
 
 \item{screen}{How edges are screened before the reported weights:
 `"fdr"` (default) keeps cells whose unpenalised coefficient is significant
-under Benjamini-Hochberg control at level `fdr_q`, applied over all `p^2`
-candidate cells of the network; `"significance"` uses a Bonferroni-corrected
-level `alpha` instead; `"none"` screens nothing, so every cell is a
-candidate and J is dense (the behaviour of earlier versions).}
+under Benjamini-Hochberg control at level `fdr_q`, applied over the
+`p(p-1)` off-diagonal cells; `"significance"` uses a Bonferroni-corrected
+level `alpha` over the same cells; `"none"` screens nothing, so every cell
+is a candidate and J is dense (the behaviour of earlier versions). The
+diagonal (self-persistence) is never screened and is always retained.}
 
 \item{fdr_q}{Benjamini-Hochberg level for `screen = "fdr"`. Default `0.10`.}
 
@@ -107,6 +109,13 @@ days or weeks.}
 \item{beeps_per_day}{Planned number of measurements per day, only needed for
 overnight day/beep pairing without a global index. Never inferred from
 observed data.}
+
+\item{support}{Optional p x p logical matrix of cells to keep. When supplied,
+it replaces `screen`: every `TRUE` cell enters the refit and every `FALSE`
+cell is fixed at zero. The diagonal is not treated specially, so callers
+who want to retain self-persistence must set it to `TRUE`. Intended for
+simulation studies that compare screening rules on a common support.
+`NULL` (default) uses `screen`.}
 }
 \value{
 A `"dynaNIRA_kim"` list with `J`, `h`, `support` (p x p logical, the

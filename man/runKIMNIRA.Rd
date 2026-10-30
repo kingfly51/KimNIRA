@@ -9,7 +9,7 @@ runKIMNIRA(
   intervention_type = c("alleviating", "aggravating"),
   method = c("mc", "exact"),
   n_sim = 5000L,
-  n_steps = 30L,
+  n_steps = 50L,
   burn_in = NULL,
   intervention_sd = 2,
   seed = 2025L,
@@ -38,7 +38,7 @@ Use `"mc"` where that is not affordable.}
 \item{n_sim}{Number of Monte Carlo trajectories. Default 5000.}
 
 \item{n_steps}{Total steps simulated per trajectory (should exceed the
-mixing time; default 30). Kept for compatibility: it equals
+mixing time; default 50). Kept for compatibility: it equals
 `warmup + sampling_steps` and is derived from those when either is supplied.}
 
 \item{burn_in}{Leading steps discarded before the summary statistic is
