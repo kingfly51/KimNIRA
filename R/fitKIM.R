@@ -21,21 +21,17 @@
 #   A cell of J is kept only if it is distinguishable from zero; the kept cells
 #   are then refitted WITHOUT a penalty so the reported weights carry no
 #   shrinkage. This is the two-stage ("relaxed lasso") structure, and the
-#   screening rule was chosen from a simulation study:
-#     "fdr"          (default) Benjamini-Hochberg over every candidate cell of
-#                    the whole p x p network, at level `fdr_q`. It matched
-#                    Bonferroni wherever edges were detectable and kept usable
-#                    power when they were not (F1 0.79 vs 0.54 at |J| in
-#                    0.25-0.45).
-#     "significance" Bonferroni at level `alpha`; higher specificity, lower
-#                    power on weak edges.
+#   screening rule was chosen from a simulation study. Only the p(p-1)
+#   off-diagonal cells are candidates: the diagonal (self-persistence) is
+#   structural and is always retained.
+#     "fdr"          (default) Benjamini-Hochberg over the p(p-1) off-diagonal
+#                    cells, at level `fdr_q`. It matched Bonferroni wherever
+#                    edges were detectable and kept usable power when they were
+#                    not.
+#     "significance" Bonferroni at level `alpha` over the off-diagonal cells;
+#                    higher specificity, lower power on weak edges.
 #     "none"         no screening: every cell is a candidate (the old dense
 #                    behaviour, and what `screen = "none"` reproduces).
-#   Note that an information-criterion penalty path (rpql/glmnet style) is NOT
-#   used: on the same simulations every such criterion put its minimum at the
-#   least-penalised end of the path and gave specificity near 0.4, because the
-#   likelihood gap between the sparse and dense model is far larger than
-#   log(n) per parameter.
 #
 # What the fit carries, in addition to the population (J, h):
 #   support       : p x p logical, the cells that survived screening
@@ -197,10 +193,17 @@
 #' @param slope_warn_singular Warn when a `"res"` fit is singular.
 #' @param screen How edges are screened before the reported weights:
 #'   `"fdr"` (default) keeps cells whose unpenalised coefficient is significant
-#'   under Benjamini-Hochberg control at level `fdr_q`, applied over all `p^2`
-#'   candidate cells of the network; `"significance"` uses a Bonferroni-corrected
-#'   level `alpha` instead; `"none"` screens nothing, so every cell is a
-#'   candidate and J is dense (the behaviour of earlier versions).
+#'   under Benjamini-Hochberg control at level `fdr_q`, applied over the
+#'   `p(p-1)` off-diagonal cells; `"significance"` uses a Bonferroni-corrected
+#'   level `alpha` over the same cells; `"none"` screens nothing, so every cell
+#'   is a candidate and J is dense (the behaviour of earlier versions). The
+#'   diagonal (self-persistence) is never screened and is always retained.
+#' @param support Optional p x p logical matrix of cells to keep. When supplied,
+#'   it replaces `screen`: every `TRUE` cell enters the refit and every `FALSE`
+#'   cell is fixed at zero. The diagonal is not treated specially, so callers
+#'   who want to retain self-persistence must set it to `TRUE`. Intended for
+#'   simulation studies that compare screening rules on a common support.
+#'   `NULL` (default) uses `screen`.
 #' @param fdr_q Benjamini-Hochberg level for `screen = "fdr"`. Default `0.10`.
 #' @param alpha Family-wise level for `screen = "significance"`. Default `0.05`.
 #' @param min_obs Minimum lag pairs retained per subject. Default `10L`.
@@ -275,7 +278,8 @@ fitKIM <- function(data,
                    beepvar          = NULL,
                    allow_overnight  = FALSE,
                    time_unit        = "auto",
-                   beeps_per_day    = NULL) {
+                   beeps_per_day    = NULL,
+                   support          = NULL) {
 
   between_person  <- match.arg(between_person)
   slope_structure <- match.arg(slope_structure)
@@ -298,6 +302,24 @@ fitKIM <- function(data,
   if (length(non_binary) > 0) stop("Non-binary variables: ", paste(non_binary, collapse = ", "))
   n_vars <- length(vars)
   if (n_vars < 2 || anyDuplicated(vars)) stop("Use at least two distinct node variables.")
+
+  # Optional externally supplied support. Captured before Section 3 assigns
+  # the internal `support` variable, so `support = NULL` keeps the old path.
+  support_ext <- support
+  if (!is.null(support_ext)) {
+    if (!is.matrix(support_ext) || !is.logical(support_ext) ||
+        !identical(dim(support_ext), c(n_vars, n_vars)))
+      stop("`support` must be a p x p logical matrix.")
+    if (is.null(rownames(support_ext)) || is.null(colnames(support_ext))) {
+      dimnames(support_ext) <- list(vars, vars)
+    } else {
+      if (!all(vars %in% rownames(support_ext)) ||
+          !all(vars %in% colnames(support_ext)))
+        stop("`support` row/column names must match `vars`.")
+      support_ext <- support_ext[vars, vars, drop = FALSE]
+    }
+    storage.mode(support_ext) <- "logical"
+  }
 
   # Random-slope structure, resolved from the node count. This mirrors the
   # default rule in mlVAR::mlVAR (temporal = "default"): correlated slopes for
@@ -377,7 +399,10 @@ fitKIM <- function(data,
   # Section 2: pass 1 -- unpenalised multilevel fit of every node
   # ==========================================================================
   # This fit serves two purposes: its coefficients are what the screen tests,
-  # and when nothing is screened out it is also the reported estimate.
+  # and when nothing is screened out it is also the reported estimate. When an
+  # external `support` is supplied there is nothing to screen, so pass 1 is
+  # skipped entirely; Section 4 then refits only the requested cells (and uses
+  # an intercept-only model for an empty row).
   beta1 <- matrix(NA_real_, n_vars, n_vars, dimnames = list(vars, vars))
   se1   <- beta1
   pass1 <- vector("list", n_vars)
@@ -385,47 +410,76 @@ fitKIM <- function(data,
   person_constant <- matrix(FALSE, n_p, n_vars, dimnames = list(pids_clean, vars))
   all_keep <- rep(TRUE, n_vars)
 
-  for (i in seq_len(n_vars)) {
-    y_i <- Y_t1[, i]
-    pc <- tapply(y_i, person_id_pool, function(z) length(unique(z)) == 1L)
-    person_constant[, i] <- as.logical(pc[as.character(pids_clean)])
-    if (var(y_i) < 1e-10) { node_zero_var <- c(node_zero_var, vars[i]); next }
-    if (verbose) message("  [fit] node ", i, "/", n_vars, ": ", vars[i])
-    f1 <- .kim_fit_node(y_i, X_lag, person_id_pool, pids_clean, all_keep,
-                        between_person, slope_structure, ctrl)
-    if (is.null(f1)) { node_fit_failed <- c(node_fit_failed, vars[i]); next }
-    pass1[[i]] <- f1
-    co <- f1$co
-    beta1[i, f1$nms] <- co[paste0("lag_", f1$nms), 1L]
-    se1[i, f1$nms]   <- co[paste0("lag_", f1$nms), 2L]
+  if (is.null(support_ext)) {
+    for (i in seq_len(n_vars)) {
+      y_i <- Y_t1[, i]
+      pc <- tapply(y_i, person_id_pool, function(z) length(unique(z)) == 1L)
+      person_constant[, i] <- as.logical(pc[as.character(pids_clean)])
+      if (var(y_i) < 1e-10) { node_zero_var <- c(node_zero_var, vars[i]); next }
+      if (verbose) message("  [fit] node ", i, "/", n_vars, ": ", vars[i])
+      f1 <- .kim_fit_node(y_i, X_lag, person_id_pool, pids_clean, all_keep,
+                          between_person, slope_structure, ctrl)
+      if (is.null(f1)) { node_fit_failed <- c(node_fit_failed, vars[i]); next }
+      pass1[[i]] <- f1
+      co <- f1$co
+      beta1[i, f1$nms] <- co[paste0("lag_", f1$nms), 1L]
+      se1[i, f1$nms]   <- co[paste0("lag_", f1$nms), 2L]
+    }
+  } else {
+    # No pass-1 model is needed for an external support; only the constant-
+    # outcome bookkeeping is kept (it is reported with the returned object).
+    for (i in seq_len(n_vars)) {
+      y_i <- Y_t1[, i]
+      pc <- tapply(y_i, person_id_pool, function(z) length(unique(z)) == 1L)
+      person_constant[, i] <- as.logical(pc[as.character(pids_clean)])
+      if (var(y_i) < 1e-10) node_zero_var <- c(node_zero_var, vars[i])
+    }
   }
 
   # ==========================================================================
   # Section 3: screen
   # ==========================================================================
-  support <- matrix(TRUE, n_vars, n_vars, dimnames = list(vars, vars))
+  support <- if (is.null(support_ext)) {
+    matrix(TRUE, n_vars, n_vars, dimnames = list(vars, vars))
+  } else support_ext
   screen_threshold <- NA_real_
-  if (screen == "none") {
+  screen_used <- screen
+  if (!is.null(support_ext)) {
+    screen_used <- "user"
+    if (verbose) message("  [support] user-supplied: ",
+                         sum(support & !diag(TRUE, n_vars)),
+                         " off-diagonal cell(s) selected.")
+  } else if (screen == "none") {
     if (verbose) message("  [screen] none: all ", n_vars^2, " cells are candidates.")
   } else if (screen == "significance") {
-    z <- stats::qnorm(1 - alpha / (2 * n_vars^2))
+    off <- !diag(TRUE, n_vars)
+    n_tests <- sum(off)
+    z <- stats::qnorm(1 - alpha / (2 * n_tests))
     zz <- abs(beta1) / se1
     zz[!is.finite(zz)] <- 0
-    support[] <- zz > z
+    support[] <- FALSE
+    support[off] <- zz[off] > z
+    diag(support) <- TRUE
     screen_threshold <- z
     if (verbose) message("  [screen] Bonferroni |z| > ", round(z, 3),
-                         " (alpha = ", alpha, " over ", n_vars^2, " cells): ",
-                         sum(support), " selected.")
+                         " (alpha = ", alpha, " over ", n_tests,
+                         " off-diagonal cells): ",
+                         sum(support & off), " edge(s) selected.")
   } else {   # "fdr"
+    off <- !diag(TRUE, n_vars)
     pv <- 2 * stats::pnorm(-abs(beta1 / se1))
     pv[!is.finite(pv)] <- 1
-    ord <- order(pv); m <- length(pv)
-    pass <- pv[ord] <= (seq_len(m) / m) * fdr_q
+    pv_off <- pv[off]; m <- length(pv_off)
+    ord <- order(pv_off)
+    pass <- pv_off[ord] <= (seq_len(m) / m) * fdr_q
+    sel <- rep(FALSE, m)
+    if (any(pass)) sel[ord[seq_len(max(which(pass)))]] <- TRUE
     support[] <- FALSE
-    if (any(pass)) support[ord[seq_len(max(which(pass)))]] <- TRUE
+    support[off] <- sel
+    diag(support) <- TRUE
     screen_threshold <- fdr_q
     if (verbose) message("  [screen] BH-FDR q = ", fdr_q, " over ", m,
-                         " cells: ", sum(support), " selected.")
+                         " off-diagonal cells: ", sum(sel), " edge(s) selected.")
   }
 
   # ==========================================================================
@@ -447,11 +501,33 @@ fitKIM <- function(data,
   for (i in seq_len(n_vars)) {
     y_i <- Y_t1[, i]
     if (var(y_i) < 1e-10) {
+      if (!vars[i] %in% node_zero_var) node_zero_var <- c(node_zero_var, vars[i])
       p_m <- mean(y_i); p_m <- max(min(p_m, 1 - eps), eps)
       h_vec[i] <- log(p_m / (1 - p_m)); next
     }
     keep <- support[i, ]
     if (!any(keep)) {                     # screened out entirely
+      if (!is.null(support_ext)) {
+        # External support: fit the intercept-only multilevel model so that h
+        # and the person shifts stay on the same scale as the other nodes.
+        d0 <- tryCatch(
+          lme4::glmer(y ~ 1 + (1 | person),
+                      data = data.frame(y = y_i, person = factor(person_id_pool)),
+                      family = stats::binomial, control = ctrl),
+          error = function(e) NULL)
+        if (!is.null(d0)) {
+          u0 <- lme4::ranef(d0)$person
+          u0 <- u0[match(pids_clean, rownames(u0)), 1]
+          u0[is.na(u0)] <- 0
+          h_vec[i] <- unname(lme4::fixef(d0)["(Intercept)"]) + mean(u0)
+          person_shifts[, i] <- u0 - mean(u0)
+          person_sd[i] <- stats::sd(u0)
+        } else {
+          p_m <- mean(y_i); p_m <- max(min(p_m, 1 - eps), eps)
+          h_vec[i] <- log(p_m / (1 - p_m))
+        }
+        next
+      }
       f1 <- pass1[[i]]
       if (is.null(f1)) next
       u1 <- f1$re[, 1L]
@@ -594,9 +670,10 @@ fitKIM <- function(data,
     temporal_network      = J_mat,
     thresholds            = h_vec,
     support               = support,
+    support_was_external  = !is.null(support_ext),
     stage1_beta           = beta1,
     stage1_se             = se1,
-    screen                = screen,
+    screen                = screen_used,
     screen_threshold      = screen_threshold,
     between_network       = between_net,
     between_dropped_nodes = between_dropped_nodes,
@@ -630,13 +707,14 @@ fitKIM <- function(data,
     person_ids            = pids_clean,
     model                 = "kim",
     estimation_method     = paste0("screened conditional transition likelihood (",
-                                   between_person, ", screen = ", screen, ")"),
+                                   between_person, ", screen = ", screen_used, ")"),
     max_time_gap          = max_time_gap,
     call                  = match.call()
   )
   class(result) <- "dynaNIRA_kim"
   result$settings <- list(vars = vars, id = id, time = time, lags = lags,
-    between_person = between_person, screen = screen, fdr_q = fdr_q, alpha = alpha,
+    between_person = between_person, screen = screen_used, fdr_q = fdr_q, alpha = alpha,
+    support_was_external = !is.null(support_ext),
     min_obs = min_obs, max_time_gap = max_time_gap, gamma = gamma, seed = seed,
     estimate_between = estimate_between, slope_structure = slope_structure,
     slope_warn_singular = slope_warn_singular, min_time_gap = min_time_gap,
@@ -644,6 +722,6 @@ fitKIM <- function(data,
     allow_overnight = allow_overnight, time_unit = time_unit,
     beeps_per_day = beeps_per_day)
   if (verbose) message("fitKIM complete (between_person = ", between_person,
-                       ", screen = ", screen, ").")
+                       ", screen = ", screen_used, ").")
   result
 }
