@@ -2,19 +2,14 @@ Package: KimNIRA
 Type: Package
 Title: Kinetic Ising Model NodeIdentifyR Algorithm for Intensive Longitudinal Binary Networks
 Version: 0.4.0
-Authors@R: person("Author", "Anonymous", role = c("aut", "cre"),
-    email = "anonymous@example.org")
+Authors@R: person("Fei", "Wang", role = c("aut", "cre"),
+    email = "bjnwangfei0501@outlook.com")
 Description: Estimates kinetic Ising models (first-order, synchronous, lagged
     logistic transition models) for multi-person binary intensive longitudinal
     data, with edge screening and random effects at the person level or at the
     level of person-specific dynamics, and evaluates sustained simulated interventions on each node through
     the exact stationary distribution of the finite-state chain or a paired
-    Monte Carlo approximation. Includes population-average effects under
-    between-person heterogeneity, person-bootstrap inference, lag-order
-    sensitivity checks, dose-response and equal-probability intervention
-    scaling, knock-out decompositions of intervention effects, and exact
-    metastability (stationary landscape, basin masses, first-passage and
-    relaxation times) diagnostics.
+    Monte Carlo approximation.
 License: GPL-3
 Encoding: UTF-8
 Depends: R (>= 4.1.0)
