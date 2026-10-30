@@ -13,32 +13,6 @@
 #   runKIMNIRA()               Main function (paired MC; steady-state oriented)
 #   print.kim_nira_result      Print method
 #
-# Revision notes (v2 / reviewer-driven):
-#   * `burn_in` discards the initial transient so that the summary statistic is
-#     oriented towards the chain's long-run (steady-state) activation, rather
-#     than being contaminated by the chosen starting distribution.
-#   * `scope` selects the target of the intervention simulation:
-#       - "typical"  : one representative individual at the typical-person
-#                      intercept h (the classic NIRA choice).
-#       - "population": the population-average (marginal) intervention effect,
-#                      i.e. the mean over the estimation-sample persons of each
-#                      person's own effect (baseline h + person_shifts[k,], and
-#                      person_J[k,,] under "res"). The exact engine computes it
-#                      person by person; the Monte Carlo engine estimates the
-#                      same finite-person mixture by assigning each trajectory
-#                      one randomly drawn person. For "pooled" there are no
-#                      person shifts, so population == typical.
-#   * `delta` may be one value or one value per target. `dose_scale =
-#     "probability"` calibrates per-target doses so that every target's own
-#     activation probability changes by the same `target_dp` (see
-#     kimDoseResponse()).
-#   Paired (common-random-number) design is kept: the same initial states and
-#   uniform stream are shared between baseline and every intervention condition
-#   within a person.
-#   `trajectory = TRUE` records the per-step path of those same chains, so the
-#   stored path and the reported effects come from one run rather than two. The
-#   recorded per-step means averaged over the retained window (burn_in, n_steps]
-#   reproduce `effects`; see tests/regression_checks.R.
 # =============================================================================
 
 
