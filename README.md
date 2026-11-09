@@ -41,18 +41,6 @@ install.packages(c("qgraph", "Matrix", "dplyr", "parallel", "testthat"))
 devtools::install_github("kingfly51/KimNIRA")
 ```
 
-**或在命令行：**
-
-```bash
-R CMD INSTALL KimNIRA_0.4.0.tar.gz
-```
-
-**Windows 二进制（.zip）：**
-
-```r
-install.packages("KimNIRA_0.4.0.zip", repos = NULL, type = "win.binary")
-```
-
 ### 3. 开发模式（不安装，直接加载源码）
 
 ```r
