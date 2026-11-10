@@ -14,10 +14,8 @@
 #     potential U(K) = -log P(K) (a stability landscape in the sense of
 #     Cui et al., 2026, but obtained from the solved stationary law instead of
 #     simulated frequencies);
-#   * the modes of P(K), the barrier between adjacent modes, and the stationary
-#     mass of the low- and high-activation basins;
-#   * exact mean first-passage times between basins and the relaxation time
-#     -1/log|lambda_2(P)|.
+#   * the modes of P(K) and the barrier between adjacent modes;
+#   * the relaxation time -1/log|lambda_2(P)|.
 #
 # A useful reference point: with J = 0 the nodes are independent and K follows
 # a Poisson-binomial law, which is log-concave and therefore unimodal. Any
@@ -117,35 +115,89 @@
        n_modes = length(modes))
 }
 
-# Mean first-passage time into the state set `hit` from the distribution `start`.
-.kim_mfpt <- function(P, start, hit) {
-  free <- which(!hit)
-  if (!length(free) || sum(start[free]) <= 0) return(0)
-  Q <- P[free, free, drop = FALSE]
-  tau <- tryCatch(solve(diag(length(free)) - Q, rep(1, length(free))),
-                  error = function(e) rep(NA_real_, length(free)))
-  w <- start[free] / sum(start[free])
-  sum(w * tau)
-}
-
-# Stationary summaries of one (J, b): count distribution and, when basins are
-# defined, basin masses and exact passage times.
-.kim_landscape_one <- function(J, b, cut = NULL, mfpt = TRUE, spectral = FALSE) {
+# Stationary summaries of one (J, b): the count distribution and, optionally,
+# the spectral gap.
+.kim_landscape_one <- function(J, b, spectral = FALSE) {
   tr <- .kim_transition(J, b); st <- .kim_stationary(tr$P)
   K <- rowSums(tr$states); p <- ncol(tr$states)
   q <- as.numeric(tapply(st$pi, factor(K, levels = 0:p), sum))
   out <- list(pi = st$pi, count = q, mean = sum(q * (0:p)) / p,
               node = as.numeric(st$pi %*% tr$states))
-  if (!is.null(cut)) {
-    low <- K <= cut[1]; high <- K >= cut[2]
-    out$p_low <- sum(st$pi[low]); out$p_high <- sum(st$pi[high])
-    if (mfpt) {
-      out$mfpt_low_to_high <- .kim_mfpt(tr$P, st$pi * low, high)
-      out$mfpt_high_to_low <- .kim_mfpt(tr$P, st$pi * high, low)
-    }
-  }
   if (spectral) out$spectral <- .kim_spectral(tr$P)
   out
+}
+
+# Local extrema of a vector, including one-sided boundary extrema. These match
+# Isinglandr's local_min_index()/local_max_index(), i.e. the selection rule used
+# by Cui et al. (2026).
+.kim_local_min_index <- function(v, include_margin = TRUE) {
+  bounded_v <- if (include_margin) c(Inf, v, Inf) else c(-Inf, v, -Inf)
+  diff1 <- diff(bounded_v)[-1]
+  diff2 <- rev(diff(rev(bounded_v))[-1])
+  which(diff1 >= 0 & diff2 >= 0)
+}
+
+.kim_local_max_index <- function(v, include_margin = TRUE) {
+  bounded_v <- if (include_margin) c(-Inf, v, -Inf) else c(Inf, v, Inf)
+  diff1 <- diff(bounded_v)[-1]
+  diff2 <- rev(diff(rev(bounded_v))[-1])
+  which(diff1 <= 0 & diff2 <= 0)
+}
+
+# Cui et al. (2026) phase stability from q = P(K), K = 0..p. The first phase is
+# K < threshold and the second K >= threshold. Within a phase, stability is
+# U(max) - U(min) with U = -log q; the minimum farther from the other phase and
+# the facing maximum are used. Indices are returned both as 1-based rows of the
+# full K = 0..p table and as 0-based K positions.
+.kim_phase_stability_q <- function(q, threshold) {
+  p <- length(q) - 1L
+  U <- -log(q)
+  one <- seq_len(threshold)
+  two <- (threshold + 1L):(p + 1L)
+
+  phase <- function(u, first) {
+    mins <- .kim_local_min_index(u)
+    if (!length(mins))
+      return(list(stability = NA_real_, imin = NA_integer_, imax = NA_integer_,
+                  status = "no_local_minimum"))
+    imin <- if (first) mins[1L] else mins[length(mins)]
+    maxs <- .kim_local_max_index(u)
+    maxs <- if (first) maxs[maxs > imin] else maxs[maxs < imin]
+    if (!is.finite(u[imin]))
+      return(list(stability = NA_real_, imin = imin, imax = NA_integer_,
+                  status = "nonfinite_potential"))
+    if (!length(maxs)) {
+      if (any(!is.finite(u)))
+        return(list(stability = NA_real_, imin = imin, imax = NA_integer_,
+                    status = "nonfinite_potential"))
+      return(list(stability = 0, imin = imin, imax = imin,
+                  status = "no_facing_maximum"))
+    }
+    imax <- if (first) maxs[1L] else maxs[length(maxs)]
+    if (!is.finite(u[imax]))
+      return(list(stability = NA_real_, imin = imin, imax = imax,
+                  status = "nonfinite_potential"))
+    list(stability = u[imax] - u[imin], imin = imin, imax = imax, status = "ok")
+  }
+
+  a <- phase(U[one], TRUE)
+  b <- phase(U[two], FALSE)
+  full <- function(z, offset) if (is.na(z)) NA_integer_ else z + offset
+  kk <- function(z) if (is.na(z)) NA_integer_ else z - 1L
+  status <- if (identical(a$status, "ok") && identical(b$status, "ok")) "ok" else
+    paste0("first:", a$status, "; second:", b$status)
+  list(stability1 = a$stability,
+       stability2 = b$stability,
+       stability_diff = a$stability - b$stability,
+       effective_minindex1 = full(a$imin, 0L),
+       effective_maxindex1 = full(a$imax, 0L),
+       effective_minindex2 = full(b$imin, threshold),
+       effective_maxindex2 = full(b$imax, threshold),
+       K_min1 = kk(full(a$imin, 0L)),
+       K_max1 = kk(full(a$imax, 0L)),
+       K_min2 = kk(full(b$imin, threshold)),
+       K_max2 = kk(full(b$imax, threshold)),
+       status = status)
 }
 
 # Hamming-local maxima of a state distribution: s is a mode when no state that
@@ -168,15 +220,15 @@
 #'
 #' Computes, from the exact stationary distribution, whether the fitted
 #' dynamics concentrate in separated low- and high-activation regions, how
-#' strongly, how long the chain stays in each, and how a sustained intervention
-#' on each node reshapes that landscape.
+#' strongly, and how a sustained intervention on each node reshapes that
+#' landscape.
 #'
 #' A fitted KIM with finite parameters has a unique, strictly positive
 #' stationary distribution, so it cannot be bistable in the strict sense of two
 #' absorbing equilibria. Bistability in the clinically relevant sense appears as
 #' metastability: a bimodal stationary distribution of the total activation
-#' K = sum_i s_i, a barrier between the modes, long mean first-passage times
-#' between basins and a second eigenvalue of P close to one. All are exact here.
+#' K = sum_i s_i, a barrier between the modes, and a second eigenvalue of P
+#' close to one. All are exact here.
 #'
 #' @param x A `"dynaNIRA_kim"` fit or a `"kim_nira_result"`. With a result, its
 #'   fit, dose and intervention direction are reused.
@@ -184,15 +236,9 @@
 #'   `targets` is intervened on and the landscape recomputed.
 #' @param targets Node names to intervene on (default: all nodes when a dose is
 #'   available, none otherwise).
-#' @param threshold Optional integer K: activation counts `>= threshold` form the
-#'   high basin and counts `< threshold` the low basin. Default: the trough
-#'   between the two dominant modes of the baseline population distribution;
-#'   basin quantities are omitted when that distribution is unimodal and no
-#'   threshold is given. The cut is held fixed across interventions.
 #' @param min_barrier Smallest barrier, in natural-log units, for two local
 #'   maxima of P(K) to count as separate modes (default 0.1, i.e. the trough is
 #'   at least about one tenth below the smaller peak).
-#' @param mfpt Compute exact mean first-passage times between basins.
 #' @param spectral `"typical"` (default) computes |lambda_2| and the relaxation
 #'   time for the typical person, `"all"` for every person pattern, `"none"` skips.
 #' @param mean_field Also locate the stable fixed points of the mean-field map.
@@ -200,16 +246,15 @@
 #' @param verbose Print a summary.
 #' @return A `"kim_bistability"` list: `count_distribution` (long table of P(K) and
 #'   U(K) = -log P(K) for the baseline and each intervention), `modes`,
-#'   `basins` (cut and baseline basin masses), `persons` (per-person modes,
-#'   basin masses and passage times), `population_vs_within` (whether
-#'   population bimodality is reproduced within persons), `state_modes`,
-#'   `interventions`, `mean_field`, `spectral`, and settings.
+#'   `persons` (per-person modes and barrier heights), `population_vs_within`
+#'   (whether population bimodality is reproduced within persons),
+#'   `state_modes`, `interventions`, `mean_field`, `spectral`, and settings.
 #' @references Cui, J., Lunansky, G., Lichtwarck-Aschoff, A., Mendoza, N., &
 #'   Hasselman, F. (2026). Quantifying the stability landscapes of psychological
 #'   networks. Behavior Research Methods, 58, 68.
 #' @export
-kimBistability <- function(x, delta = NULL, targets = NULL, threshold = NULL,
-                           min_barrier = 0.1, mfpt = TRUE,
+kimBistability <- function(x, delta = NULL, targets = NULL,
+                           min_barrier = 0.1,
                            spectral = c("typical", "all", "none"),
                            mean_field = TRUE, n_starts = 50L, verbose = TRUE) {
   spectral <- match.arg(spectral)
@@ -228,32 +273,17 @@ kimBistability <- function(x, delta = NULL, targets = NULL, threshold = NULL,
   pat <- .kim_patterns(fit); bs <- pat$baselines; w <- pat$weights
   n_pat <- length(pat$index)
 
-  # ---- baseline, pass 1: distributions ----------------------------------------
+  # ---- baseline: distributions ------------------------------------------------
   base <- lapply(pat$index, function(k)
-    .kim_landscape_one(.kim_J_for(fit, k), bs[k, ], cut = NULL, mfpt = FALSE))
+    .kim_landscape_one(.kim_J_for(fit, k), bs[k, ]))
   q_pop <- Reduce(`+`, Map(function(z, wk) wk * z$count, base, w))
   pi_pop <- Reduce(`+`, Map(function(z, wk) wk * z$pi, base, w))
   md <- .kim_modes(q_pop, min_barrier)
 
-  cut <- if (!is.null(threshold)) {
-    if (length(threshold) != 1L || threshold < 1 || threshold > p || threshold != round(threshold))
-      stop("threshold must be an integer in 1..p.")
-    c(threshold - 1L, threshold)
-  } else if (md$n_modes >= 2L) {
-    # Trough between the two dominant modes; the trough count itself belongs to
-    # neither basin.
-    dom <- sort(md$modes[order(q_pop[md$modes + 1L], decreasing = TRUE)[1:2]])
-    seg <- dom[1]:dom[2]
-    tr <- seg[which.min(q_pop[seg + 1L])]
-    c(tr - 1L, tr + 1L)
-  } else NULL
-
-  # ---- baseline, pass 2: basins, passage times, spectra -----------------------
-  if (!is.null(cut) || spectral == "all") {
+  if (spectral == "all") {
     base <- lapply(seq_len(n_pat), function(kk) {
       k <- pat$index[kk]
-      .kim_landscape_one(.kim_J_for(fit, k), bs[k, ], cut = cut, mfpt = mfpt,
-                         spectral = spectral == "all")
+      .kim_landscape_one(.kim_J_for(fit, k), bs[k, ], spectral = TRUE)
     })
   }
   person_modes <- lapply(base, function(z) .kim_modes(z$count, min_barrier))
@@ -262,14 +292,6 @@ kimBistability <- function(x, delta = NULL, targets = NULL, threshold = NULL,
     n_modes = vapply(person_modes, `[[`, integer(1), "n_modes"),
     modes = vapply(person_modes, function(m) paste(m$modes, collapse = ","), ""),
     max_barrier = vapply(person_modes, function(m) if (length(m$barriers)) max(m$barriers) else 0, 0))
-  if (!is.null(cut)) {
-    persons$p_low  <- vapply(base, `[[`, numeric(1), "p_low")
-    persons$p_high <- vapply(base, `[[`, numeric(1), "p_high")
-    if (mfpt) {
-      persons$mfpt_low_to_high <- vapply(base, `[[`, numeric(1), "mfpt_low_to_high")
-      persons$mfpt_high_to_low <- vapply(base, `[[`, numeric(1), "mfpt_high_to_low")
-    }
-  }
   if (spectral == "all") {
     persons$lambda2 <- vapply(base, function(z) z$spectral$lambda2, 0)
     persons$relaxation <- vapply(base, function(z) z$spectral$relaxation, 0)
@@ -286,16 +308,7 @@ kimBistability <- function(x, delta = NULL, targets = NULL, threshold = NULL,
                            stringsAsFactors = FALSE)
   iv <- NULL
   base_summary <- function(lst) {
-    out <- list(mean_activation = sum(w * vapply(lst, `[[`, 0, "mean")))
-    if (!is.null(cut)) {
-      out$p_high <- sum(w * vapply(lst, `[[`, 0, "p_high"))
-      out$p_low  <- sum(w * vapply(lst, `[[`, 0, "p_low"))
-      if (mfpt) {
-        out$mfpt_low_to_high <- sum(w * vapply(lst, `[[`, 0, "mfpt_low_to_high"))
-        out$mfpt_high_to_low <- sum(w * vapply(lst, `[[`, 0, "mfpt_high_to_low"))
-      }
-    }
-    out
+    list(mean_activation = sum(w * vapply(lst, `[[`, 0, "mean")))
   }
   b0 <- base_summary(base)
   if (length(targets)) {
@@ -304,7 +317,7 @@ kimBistability <- function(x, delta = NULL, targets = NULL, threshold = NULL,
       j <- match(tg, vars)
       lst <- lapply(pat$index, function(k) {
         bb <- bs[k, ]; bb[j] <- bb[j] + delta[j]
-        .kim_landscape_one(.kim_J_for(fit, k), bb, cut = cut, mfpt = mfpt)
+        .kim_landscape_one(.kim_J_for(fit, k), bb)
       })
       q <- Reduce(`+`, Map(function(z, wk) wk * z$count, lst, w))
       mj <- .kim_modes(q, min_barrier); sj <- base_summary(lst)
@@ -318,15 +331,6 @@ kimBistability <- function(x, delta = NULL, targets = NULL, threshold = NULL,
         share_persons_bimodal = sum(w[vapply(lst, function(z)
           .kim_modes(z$count, min_barrier)$n_modes, 0L) >= 2L]),
         stringsAsFactors = FALSE)
-      if (!is.null(cut)) {
-        row$p_high <- sj$p_high; row$change_p_high <- sj$p_high - b0$p_high
-        if (mfpt) {
-          row$mfpt_low_to_high <- sj$mfpt_low_to_high
-          row$mfpt_high_to_low <- sj$mfpt_high_to_low
-          row$ratio_low_to_high <- sj$mfpt_low_to_high / b0$mfpt_low_to_high
-          row$ratio_high_to_low <- sj$mfpt_high_to_low / b0$mfpt_high_to_low
-        }
-      }
       rows[[tg]] <- row
     }
     iv <- do.call(rbind, rows); rownames(iv) <- NULL
@@ -352,14 +356,12 @@ kimBistability <- function(x, delta = NULL, targets = NULL, threshold = NULL,
     modes = data.frame(K = md$modes, probability = q_pop[md$modes + 1L]),
     troughs = md$troughs, barriers = md$barriers,
     population_bimodal = pop_bimodal,
-    basins = if (is.null(cut)) NULL else c(list(low = paste0("K <= ", cut[1]),
-                                                high = paste0("K >= ", cut[2])), b0),
     persons = persons,
     population_vs_within = list(share_persons_bimodal = within_share, origin = origin),
     state_modes = .kim_state_modes(pi_pop, p, vars),
     interventions = iv, mean_field = mf, spectral = spec,
-    settings = list(delta = delta, targets = targets, threshold = threshold, cut = cut,
-                    min_barrier = min_barrier, mfpt = mfpt,
+    settings = list(delta = delta, targets = targets,
+                    min_barrier = min_barrier,
                     population_averaged = .kim_uses_population(fit)),
     kim_fit = fit)
   class(out) <- "kim_bistability"
@@ -380,13 +382,6 @@ print.kim_bistability <- function(x, ...) {
       "; persons that are themselves multimodal: ",
       round(100 * x$population_vs_within$share_persons_bimodal, 1), "%  -> ",
       x$population_vs_within$origin, "\n", sep = "")
-  if (!is.null(x$basins)) {
-    cat("Basins: low ", x$basins$low, " (mass ", round(x$basins$p_low, 3), "), high ",
-        x$basins$high, " (mass ", round(x$basins$p_high, 3), ")\n", sep = "")
-    if (!is.null(x$basins$mfpt_low_to_high))
-      cat("Mean first-passage time low -> high: ", round(x$basins$mfpt_low_to_high, 2),
-          " transitions; high -> low: ", round(x$basins$mfpt_high_to_low, 2), "\n", sep = "")
-  }
   if (!is.null(x$spectral)) { cat("Spectral:\n"); print(x$spectral, row.names = FALSE) }
   if (!is.null(x$mean_field) && nrow(x$mean_field))
     cat("Stable mean-field fixed points (typical person): ", nrow(x$mean_field),
@@ -397,6 +392,76 @@ print.kim_bistability <- function(x, ...) {
     print(x$interventions, row.names = FALSE, digits = 4)
   }
   invisible(x)
+}
+
+
+#' Phase stability of a KIM stability landscape (Cui et al., 2026)
+#'
+#' Splits each condition's potential landscape U(K) = -log P(K) at a threshold
+#' number of active nodes and reports the two phase stabilities and their
+#' difference, following Cui et al. (2026) and the selection rule of
+#' \code{Isinglandr::calculate_stability()}.
+#'
+#' @param land A `"kim_bistability"` object from [kimBistability()]. The
+#'   baseline and every intervention condition stored in its
+#'   `count_distribution` are available.
+#' @param conditions Conditions to score. Default: all conditions present
+#'   (`"baseline"` plus the intervention targets).
+#' @param threshold Integer K in `1..p`: the first phase is `K < threshold`, the
+#'   second `K >= threshold` (Cui et al.'s `split_value`). Default:
+#'   `ceiling(p / 2)`. The value is used only for the phase split; it does not
+#'   change the landscape or the intervention effects stored in `land`.
+#' @return A data frame with one row per condition: `condition`, `threshold`,
+#'   `stability1` (low-activation phase), `stability2` (high-activation phase),
+#'   `stability_diff` (`stability1 - stability2`, positive means the
+#'   low-activation phase is more stable), the selected `K_min*`/`K_max*`
+#'   positions, and `status`.
+#' @details Within each phase stability is `U(max) - U(min)`. The first phase
+#'   uses its leftmost local minimum and the first local maximum to its right;
+#'   the second phase uses its rightmost local minimum and the last local
+#'   maximum to its left. Boundary extrema count. If no facing maximum exists
+#'   the stability is 0; a missing local minimum or a non-finite potential gives
+#'   `NA`, with the reason in `status`.
+#' @references Cui, J., Lunansky, G., Lichtwarck-Aschoff, A., Mendoza, N., &
+#'   Hasselman, F. (2026). Quantifying the stability landscapes of psychological
+#'   networks. Behavior Research Methods, 58, 68.
+#' @seealso [kimBistability()], [kimPlotLandscape()]
+#' @export
+kimPhaseStability <- function(land, conditions = NULL, threshold = NULL) {
+  if (!inherits(land, "kim_bistability"))
+    stop("`land` must come from kimBistability().", call. = FALSE)
+  d <- land$count_distribution
+  available <- unique(d$condition)
+  if (is.null(conditions)) conditions <- available
+  if (!is.character(conditions) || !length(conditions) || anyNA(conditions))
+    stop("`conditions` must be a non-empty character vector.", call. = FALSE)
+  miss <- setdiff(conditions, available)
+  if (length(miss))
+    stop("Unknown condition(s): ", paste(miss, collapse = ", "),
+         ". Available: ", paste(available, collapse = ", "), ".", call. = FALSE)
+  p <- length(land$kim_fit$vars)
+  if (is.null(threshold)) threshold <- as.integer(ceiling(p / 2))
+  if (length(threshold) != 1L || is.na(threshold) || !is.finite(threshold) ||
+      threshold != round(threshold) || threshold < 1 || threshold > p)
+    stop("threshold must be an integer in 1..p.", call. = FALSE)
+  threshold <- as.integer(threshold)
+  rows <- lapply(conditions, function(cond) {
+    dd <- d[d$condition == cond, , drop = FALSE]
+    dd <- dd[order(dd$K), , drop = FALSE]
+    if (nrow(dd) != p + 1L || !identical(as.integer(dd$K), 0:p))
+      stop("count_distribution for condition '", cond, "' is incomplete.",
+           call. = FALSE)
+    r <- .kim_phase_stability_q(dd$probability, threshold)
+    data.frame(condition = cond, threshold = threshold,
+               stability1 = r$stability1, stability2 = r$stability2,
+               stability_diff = r$stability_diff,
+               K_min1 = r$K_min1, K_max1 = r$K_max1,
+               K_min2 = r$K_min2, K_max2 = r$K_max2,
+               status = r$status, stringsAsFactors = FALSE)
+  })
+  out <- do.call(rbind, rows)
+  rownames(out) <- NULL
+  out
 }
 
 
@@ -440,9 +505,6 @@ kimPlotLandscape <- function(x, conditions = NULL, per_state = FALSE,
     ggplot2::labs(x = "K = number of active nodes", y = ylab, colour = NULL, linetype = NULL) +
     ggplot2::theme_minimal(base_size = 12) +
     ggplot2::theme(legend.position = "bottom", panel.grid.minor = ggplot2::element_blank())
-  if (!is.null(x$settings$cut))
-    gg <- gg + ggplot2::geom_vline(xintercept = mean(x$settings$cut), linetype = "dotted",
-                                   colour = "grey50")
   gg
 }
 
