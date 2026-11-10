@@ -284,6 +284,11 @@ print(land)
 
 kimPlotLandscape(land, per_state = TRUE, type = "probability")
 
+# 各条件（基线 + 干预）的 Cui et al. (2026) 相稳定性指标
+ps <- kimPhaseStability(land)
+print(ps)                         # stability1, stability2, stability_diff
+kimPhaseStability(land, threshold = 3)  # 固定截断值
+
 # 同期依赖（条件独立假设）
 cont <- kimContemporaneousCheck(fit, ema_long)
 print(cont)
@@ -293,7 +298,7 @@ mk <- kimMarkovCheck(fit, ema_long)
 print(mk)
 ```
 
-`land$count_distribution`、`land$basins`、`land$spectral`、`land$interventions` 分别给出激活数分布、盆地质量与首达时间、谱证据、各干预对景观的影响。
+`land$count_distribution`、`land$modes`、`land$spectral`、`land$interventions` 分别给出激活数分布、众数与势垒、谱证据、各干预对景观的影响。
 
 ### 9. 剂量-反应与仿真验证
 
@@ -342,7 +347,8 @@ kim_trajectory(J, h, n_steps = 30, n_sim = 5000)
 | `kimPlotStability()` | 排名稳定性堆叠柱状图 |
 | `kimPlotTrajectory()` | 轨迹图（summary / node / diff / panel / spaghetti） |
 | `kimDeltaPlot()` | 效应柱状图 + CI + 显著性星号 |
-| `kimBistability()` | 稳态景观、盆地、首达时间、谱证据 |
+| `kimBistability()` | 稳态景观、众数、势垒、谱证据 |
+| `kimPhaseStability()` | 各条件（基线/干预）的 Cui et al. (2026) 相稳定性指标 |
 | `kimPlotLandscape()` | 景观图（势能 / 概率） |
 | `kimMixing()` | 第二特征值模与弛豫时间 |
 | `kimDoseResponse()` | 剂量-反应与等概率剂量排序 |
@@ -389,9 +395,7 @@ system.file("tutorials/tutorial_kimNIRA.R", package = "KimNIRA")
 - `kimMarkovCheck()` 不再有惩罚分支；
 - `kimPlotNIRA()` 新增 `p_adjust`；
 - `kimPlotTrajectory(type = "node")` 用蓝色线标识靶点并加图例；
-- 并行 bootstrap 直接 `library(KimNIRA)`，不再依赖 `pkgload` 开发态加载。
 
-详见 `NEWS.md`。
 
 ---
 
