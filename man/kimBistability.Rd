@@ -8,9 +8,7 @@ kimBistability(
   x,
   delta = NULL,
   targets = NULL,
-  threshold = NULL,
   min_barrier = 0.1,
-  mfpt = TRUE,
   spectral = c("typical", "all", "none"),
   mean_field = TRUE,
   n_starts = 50L,
@@ -27,17 +25,9 @@ fit, dose and intervention direction are reused.}
 \item{targets}{Node names to intervene on (default: all nodes when a dose is
 available, none otherwise).}
 
-\item{threshold}{Optional integer K: activation counts `>= threshold` form the
-high basin and counts `< threshold` the low basin. Default: the trough
-between the two dominant modes of the baseline population distribution;
-basin quantities are omitted when that distribution is unimodal and no
-threshold is given. The cut is held fixed across interventions.}
-
 \item{min_barrier}{Smallest barrier, in natural-log units, for two local
 maxima of P(K) to count as separate modes (default 0.1, i.e. the trough is
 at least about one tenth below the smaller peak).}
-
-\item{mfpt}{Compute exact mean first-passage times between basins.}
 
 \item{spectral}{`"typical"` (default) computes |lambda_2| and the relaxation
 time for the typical person, `"all"` for every person pattern, `"none"` skips.}
@@ -51,24 +41,23 @@ time for the typical person, `"all"` for every person pattern, `"none"` skips.}
 \value{
 A `"kim_bistability"` list: `count_distribution` (long table of P(K) and
   U(K) = -log P(K) for the baseline and each intervention), `modes`,
-  `basins` (cut and baseline basin masses), `persons` (per-person modes,
-  basin masses and passage times), `population_vs_within` (whether
-  population bimodality is reproduced within persons), `state_modes`,
-  `interventions`, `mean_field`, `spectral`, and settings.
+  `persons` (per-person modes and barrier heights), `population_vs_within`
+  (whether population bimodality is reproduced within persons),
+  `state_modes`, `interventions`, `mean_field`, `spectral`, and settings.
 }
 \description{
 Computes, from the exact stationary distribution, whether the fitted
 dynamics concentrate in separated low- and high-activation regions, how
-strongly, how long the chain stays in each, and how a sustained intervention
-on each node reshapes that landscape.
+strongly, and how a sustained intervention on each node reshapes that
+landscape.
 }
 \details{
 A fitted KIM with finite parameters has a unique, strictly positive
 stationary distribution, so it cannot be bistable in the strict sense of two
 absorbing equilibria. Bistability in the clinically relevant sense appears as
 metastability: a bimodal stationary distribution of the total activation
-K = sum_i s_i, a barrier between the modes, long mean first-passage times
-between basins and a second eigenvalue of P close to one. All are exact here.
+K = sum_i s_i, a barrier between the modes, and a second eigenvalue of P
+close to one. All are exact here.
 }
 \references{
 Cui, J., Lunansky, G., Lichtwarck-Aschoff, A., Mendoza, N., &
