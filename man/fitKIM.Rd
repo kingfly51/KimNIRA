@@ -13,7 +13,7 @@ fitKIM(
   between_person = c("re", "res"),
   slope_structure = c("auto", "diag", "full"),
   slope_warn_singular = TRUE,
-  screen = c("fdr", "significance", "none"),
+  screen = c("fdr", "bonferroni", "uncorrected", "none"),
   fdr_q = 0.1,
   alpha = 0.05,
   min_obs = 10L,
@@ -66,14 +66,19 @@ explicitly always wins over the rule.}
 \item{screen}{How edges are screened before the reported weights:
 `"fdr"` (default) keeps cells whose unpenalised coefficient is significant
 under Benjamini-Hochberg control at level `fdr_q`, applied over the
-`p(p-1)` off-diagonal cells; `"significance"` uses a Bonferroni-corrected
-level `alpha` over the same cells; `"none"` screens nothing, so every cell
-is a candidate and J is dense (the behaviour of earlier versions). The
-diagonal (self-persistence) is never screened and is always retained.}
+`p(p-1)` off-diagonal cells; `"bonferroni"` uses a Bonferroni-corrected
+level `alpha` over the same cells; `"uncorrected"` keeps cells with
+unadjusted two-sided `p <= alpha` (no multiplicity control); `"none"`
+screens nothing, so every cell is a candidate and J is dense (the
+behaviour of earlier versions). The deprecated alias `"significance"` is
+still accepted and maps to `"bonferroni"`. The diagonal (self-persistence)
+is never screened and is always retained.}
 
 \item{fdr_q}{Benjamini-Hochberg level for `screen = "fdr"`. Default `0.10`.}
 
-\item{alpha}{Family-wise level for `screen = "significance"`. Default `0.05`.}
+\item{alpha}{Level for `screen = "bonferroni"` (family-wise, corrected over
+the `p(p-1)` off-diagonal cells) or `screen = "uncorrected"` (per-test,
+unadjusted). Default `0.05`.}
 
 \item{min_obs}{Minimum lag pairs retained per subject. Default `10L`.}
 
@@ -119,10 +124,15 @@ simulation studies that compare screening rules on a common support.
 }
 \value{
 A `"dynaNIRA_kim"` list with `J`, `h`, `support` (p x p logical, the
-  cells that survived screening), `stage1_beta`/`stage1_se` (the unpenalised
-  coefficients that were screened and their standard errors),
-  `screen_threshold`, `person_shifts`, `person_sd`, `between_network`,
-  spectral diagnostics, and call metadata.
+  cells that survived screening), `stage1_beta`/`stage1_se`/`stage1_p` (the
+  unpenalised coefficients that were screened, their standard errors, and
+  their unadjusted two-sided Wald p-values; `stage1_p` is `NA` where not
+  estimable, and entirely `NA` when an external `support` was supplied),
+  `edge_table` (a data frame with one row per off-diagonal cell: `from`,
+  `to`, `beta`, `se`, `p`, `selected`), `screen_threshold` (the |z| cut-off
+  for `"bonferroni"`, the nominal level for `"fdr"`/`"uncorrected"`, and
+  `NA` otherwise), `person_shifts`, `person_sd`, `between_network`, spectral
+  diagnostics, and call metadata.
 
   For `between_person = "res"` it additionally carries `person_J`
   (`n_persons x p x p`, person k's transition matrix, whose mean over persons

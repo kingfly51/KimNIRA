@@ -7,7 +7,7 @@
 kimPhaseStability(land, conditions = NULL, threshold = NULL)
 }
 \arguments{
-\item{land}{A `"kim_bistability"` object from \code{\link{kimBistability}()}. The
+\item{land}{A `"kim_bistability"` object from [kimBistability()]. The
 baseline and every intervention condition stored in its
 `count_distribution` are available.}
 
@@ -46,5 +46,5 @@ Cui, J., Lunansky, G., Lichtwarck-Aschoff, A., Mendoza, N., &
   networks. Behavior Research Methods, 58, 68.
 }
 \seealso{
-\code{\link{kimBistability}()}, \code{\link{kimPlotLandscape}()}
+[kimBistability()], [kimPlotLandscape()]
 }
