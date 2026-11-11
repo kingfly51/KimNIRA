@@ -598,20 +598,29 @@ step_axis_label <- "Transitions since onset"
 
   lvls      <- levels(df$node_label)
 
-  # Align each initial baseline near the top, retaining absolute labels.
-  # Equal percentage-point changes have equal heights among non-target nodes.
-  # Reserve 90% of the range below baseline and 10% above it. Include all
-  # upward responses/MC fluctuations; never clip data to force a flat baseline.
+  # Keep the baseline as the absolute reference, but choose each facet's range
+  # from the observed upward and downward excursions around it, plus 10%
+  # padding. A fixed 90%-below/10%-above split (the old behaviour) pushed
+  # upward (aggravating) responses into a thin strip at the top and stretched
+  # the axis far below zero; mirroring the split would do the same to downward
+  # spillovers. Non-target nodes still share one range, so equal
+  # percentage-point changes keep equal heights across their facets.
   baseline_rows <- df[df$condition == "Baseline" & df$step == 0, ]
   centres <- stats::setNames(baseline_rows$prob, baseline_rows$node)
   offsets <- df$prob - unname(centres[df$node])
-  other_offsets <- offsets[df$node != target_name]
-  span_for <- function(x) max(c(-x / .9, x / .1, 1e-4), na.rm = TRUE)
-  shared_span <- span_for(other_offsets)
-  target_span <- span_for(offsets[df$node == target_name])
+  excursion <- function(x) {
+    up   <- max(c(0, x), na.rm = TRUE)
+    down <- max(c(0, -x), na.rm = TRUE)
+    list(up = up, down = down, span = max(up + down, 1e-4))
+  }
+  other_ex  <- excursion(offsets[df$node != target_name])
+  target_ex <- excursion(offsets[df$node == target_name])
+  pad <- 0.1
   axis_bounds <- do.call(rbind, lapply(node_order, function(nm) {
-    span <- if (nm == target_name) target_span else shared_span
-    data.frame(step = 0, prob = centres[[nm]] + c(-.9, .1) * span,
+    ex <- if (nm == target_name) target_ex else other_ex
+    data.frame(step = 0,
+               prob = centres[[nm]] + c(-ex$down - pad * ex$span,
+                                        ex$up + pad * ex$span),
                node_label = as.character(df$node_label[match(nm, df$node)]))
   }))
   axis_bounds$node_label <- factor(axis_bounds$node_label, levels = lvls)
