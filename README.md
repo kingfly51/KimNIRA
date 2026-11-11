@@ -122,6 +122,8 @@ res$summary[, c("node", "benefit", "direct_benefit", "spillover_benefit", "rank"
 | `fit$h` | 节点截距（总体平均 logit 水平） |
 | `fit$support` | p×p 逻辑矩阵：哪些边通过筛选 |
 | `fit$stage1_beta` / `stage1_se` | 筛选阶段（未惩罚）的系数与标准误 |
+| `fit$stage1_p` | 筛选阶段的未校正双侧 Wald p 值（p×p；对角线也保存但不参与筛选） |
+| `fit$edge_table` | 非对角边的长表：`from`、`to`、`beta`、`se`、`p`、`selected` |
 | `fit$screen` / `screen_threshold` | 实际使用的筛选方式与阈值 |
 | `fit$n_lag_pairs` | 实际用于估计的滞后对数量 |
 | `fit$transition_types` | 保留下来的转移类型；确认"一步"是什么间隔 |
@@ -155,7 +157,8 @@ fit <- fitKIM(
 **`screen`：**
 
 - `"fdr"`（默认）：BH-FDR 控制，阈值 `fdr_q`；
-- `"significance"`：Bonferroni 校正，阈值 `alpha`；
+- `"bonferroni"`：Bonferroni 校正，阈值 `alpha`；旧名 `"significance"` 仍可用但已弃用（会给出 warning）；
+- `"uncorrected"`：未校正双侧 `p <= alpha`（默认 0.05），不做多重比较控制；
 - `"none"`：不筛选，J 为稠密矩阵（兼容旧版行为）。
 
 ### 2. 网络图与中心性
@@ -386,6 +389,13 @@ system.file("tutorials/tutorial_kimNIRA.R", package = "KimNIRA")
 ---
 
 ## 版本说明
+
+**0.4.1 的主要变化：**
+
+- 返回对象新增 `stage1_p`（未校正双侧 Wald p 值矩阵）和 `edge_table`（非对角边长表，含 `p` 列）；
+- 新增边筛选方式 `screen = "uncorrected"`（`p <= alpha`，不做多重比较校正）；
+- `screen = "significance"` 重命名为 `"bonferroni"`；旧名保留为弃用别名，旧脚本与已保存 fit 仍可运行；
+- `kimStabilityBootstrap()` 会把旧 fit 中的 `"significance"` 归一化为 `"bonferroni"`，避免重复 warning。
 
 **0.4.0 的主要变化：**
 
