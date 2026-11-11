@@ -28,8 +28,13 @@
 #                    cells, at level `fdr_q`. It matched Bonferroni wherever
 #                    edges were detectable and kept usable power when they were
 #                    not.
-#     "significance" Bonferroni at level `alpha` over the off-diagonal cells;
+#     "bonferroni"   Bonferroni at level `alpha` over the off-diagonal cells;
 #                    higher specificity, lower power on weak edges.
+#                    ("significance" was the pre-0.4.1 name; it is still
+#                    accepted as a deprecated alias.)
+#     "uncorrected"  unadjusted two-sided p <= `alpha` over the off-diagonal
+#                    cells; no multiplicity control (highest power, highest
+#                    false-discovery burden).
 #     "none"         no screening: every cell is a candidate (the old dense
 #                    behaviour, and what `screen = "none"` reproduces).
 #
@@ -37,7 +42,12 @@
 #   support       : p x p logical, the cells that survived screening
 #   stage1_beta   : the unpenalised coefficients that were screened
 #   stage1_se     : their standard errors
-#   screen_threshold : the |z| cut-off (Bonferroni) or the BH level (FDR)
+#   stage1_p      : their unadjusted two-sided Wald p-values (diagonal stored
+#                   too, but never screened)
+#   edge_table    : off-diagonal cells as a data frame (from, to, beta, se, p,
+#                   selected)
+#   screen_threshold : the |z| cut-off (Bonferroni) or the nominal level (FDR,
+#                    uncorrected)
 #   person_shifts : n_persons x p matrix with a_ki. Zero when screen leaves no
 #                   cell for a node.
 #   person_sd     : length-p vector of per-node SD of a_ki.
@@ -194,10 +204,13 @@
 #' @param screen How edges are screened before the reported weights:
 #'   `"fdr"` (default) keeps cells whose unpenalised coefficient is significant
 #'   under Benjamini-Hochberg control at level `fdr_q`, applied over the
-#'   `p(p-1)` off-diagonal cells; `"significance"` uses a Bonferroni-corrected
-#'   level `alpha` over the same cells; `"none"` screens nothing, so every cell
-#'   is a candidate and J is dense (the behaviour of earlier versions). The
-#'   diagonal (self-persistence) is never screened and is always retained.
+#'   `p(p-1)` off-diagonal cells; `"bonferroni"` uses a Bonferroni-corrected
+#'   level `alpha` over the same cells; `"uncorrected"` keeps cells with
+#'   unadjusted two-sided `p <= alpha` (no multiplicity control); `"none"`
+#'   screens nothing, so every cell is a candidate and J is dense (the
+#'   behaviour of earlier versions). The deprecated alias `"significance"` is
+#'   still accepted and maps to `"bonferroni"`. The diagonal (self-persistence)
+#'   is never screened and is always retained.
 #' @param support Optional p x p logical matrix of cells to keep. When supplied,
 #'   it replaces `screen`: every `TRUE` cell enters the refit and every `FALSE`
 #'   cell is fixed at zero. The diagonal is not treated specially, so callers
@@ -205,7 +218,9 @@
 #'   simulation studies that compare screening rules on a common support.
 #'   `NULL` (default) uses `screen`.
 #' @param fdr_q Benjamini-Hochberg level for `screen = "fdr"`. Default `0.10`.
-#' @param alpha Family-wise level for `screen = "significance"`. Default `0.05`.
+#' @param alpha Level for `screen = "bonferroni"` (family-wise, corrected over
+#'   the `p(p-1)` off-diagonal cells) or `screen = "uncorrected"` (per-test,
+#'   unadjusted). Default `0.05`.
 #' @param min_obs Minimum lag pairs retained per subject. Default `10L`.
 #' @param max_time_gap Maximum elapsed time between each adjacent recorded
 #'   measurement in a lag window (NULL = no upper bound). For lags greater
@@ -231,10 +246,15 @@
 #'   days or weeks.
 #'
 #' @return A `"dynaNIRA_kim"` list with `J`, `h`, `support` (p x p logical, the
-#'   cells that survived screening), `stage1_beta`/`stage1_se` (the unpenalised
-#'   coefficients that were screened and their standard errors),
-#'   `screen_threshold`, `person_shifts`, `person_sd`, `between_network`,
-#'   spectral diagnostics, and call metadata.
+#'   cells that survived screening), `stage1_beta`/`stage1_se`/`stage1_p` (the
+#'   unpenalised coefficients that were screened, their standard errors, and
+#'   their unadjusted two-sided Wald p-values; `stage1_p` is `NA` where not
+#'   estimable, and entirely `NA` when an external `support` was supplied),
+#'   `edge_table` (a data frame with one row per off-diagonal cell: `from`,
+#'   `to`, `beta`, `se`, `p`, `selected`), `screen_threshold` (the |z| cut-off
+#'   for `"bonferroni"`, the nominal level for `"fdr"`/`"uncorrected"`, and
+#'   `NA` otherwise), `person_shifts`, `person_sd`, `between_network`, spectral
+#'   diagnostics, and call metadata.
 #'
 #'   For `between_person = "res"` it additionally carries `person_J`
 #'   (`n_persons x p x p`, person k's transition matrix, whose mean over persons
@@ -263,7 +283,7 @@ fitKIM <- function(data,
                    between_person   = c("re", "res"),
                    slope_structure  = c("auto", "diag", "full"),
                    slope_warn_singular = TRUE,
-                   screen           = c("fdr", "significance", "none"),
+                   screen           = c("fdr", "bonferroni", "uncorrected", "none"),
                    fdr_q            = 0.10,
                    alpha            = 0.05,
                    min_obs          = 10L,
@@ -283,6 +303,14 @@ fitKIM <- function(data,
 
   between_person  <- match.arg(between_person)
   slope_structure <- match.arg(slope_structure)
+  # "significance" was the pre-0.4.1 name for Bonferroni screening. Normalise
+  # before match.arg so the formal argument no longer advertises it, while old
+  # scripts and saved settings keep working.
+  if (length(screen) == 1L && identical(screen, "significance")) {
+    warning("`screen = \"significance\"` is deprecated; use \"bonferroni\".",
+            call. = FALSE)
+    screen <- "bonferroni"
+  }
   screen          <- match.arg(screen)
   if (length(lags) != 1L || !is.finite(lags) || lags < 1 ||
       lags != as.integer(lags) || min_obs < 2)
@@ -436,6 +464,12 @@ fitKIM <- function(data,
     }
   }
 
+  # Unadjusted two-sided Wald p-values from the pass-1 fits. Stored for all
+  # p^2 cells (the diagonal is reported but never screened). Non-estimable
+  # cells -- external support, failed/constant nodes, non-finite SE -- are NA.
+  stage1_p <- 2 * stats::pnorm(-abs(beta1 / se1))
+  stage1_p[!is.finite(stage1_p)] <- NA_real_
+
   # ==========================================================================
   # Section 3: screen
   # ==========================================================================
@@ -451,7 +485,7 @@ fitKIM <- function(data,
                          " off-diagonal cell(s) selected.")
   } else if (screen == "none") {
     if (verbose) message("  [screen] none: all ", n_vars^2, " cells are candidates.")
-  } else if (screen == "significance") {
+  } else if (screen == "bonferroni") {
     off <- !diag(TRUE, n_vars)
     n_tests <- sum(off)
     z <- stats::qnorm(1 - alpha / (2 * n_tests))
@@ -465,10 +499,19 @@ fitKIM <- function(data,
                          " (alpha = ", alpha, " over ", n_tests,
                          " off-diagonal cells): ",
                          sum(support & off), " edge(s) selected.")
+  } else if (screen == "uncorrected") {
+    off <- !diag(TRUE, n_vars)
+    support[] <- FALSE
+    support[off] <- !is.na(stage1_p[off]) & stage1_p[off] <= alpha
+    diag(support) <- TRUE
+    screen_threshold <- alpha
+    if (verbose) message("  [screen] uncorrected p <= ", alpha,
+                         " over ", sum(off), " off-diagonal cells: ",
+                         sum(support & off), " edge(s) selected.")
   } else {   # "fdr"
     off <- !diag(TRUE, n_vars)
-    pv <- 2 * stats::pnorm(-abs(beta1 / se1))
-    pv[!is.finite(pv)] <- 1
+    pv <- stage1_p
+    pv[is.na(pv)] <- 1
     pv_off <- pv[off]; m <- length(pv_off)
     ord <- order(pv_off)
     pass <- pv_off[ord] <= (seq_len(m) / m) * fdr_q
@@ -481,6 +524,20 @@ fitKIM <- function(data,
     if (verbose) message("  [screen] BH-FDR q = ", fdr_q, " over ", m,
                          " off-diagonal cells: ", sum(sel), " edge(s) selected.")
   }
+
+  # Off-diagonal cells as a reporting table. J[i, j] is the effect of node j
+  # at t on node i at t+1, so `from` is the predictor (column) and `to` is the
+  # outcome (row).
+  idx <- which(!diag(TRUE, n_vars), arr.ind = TRUE)
+  edge_table <- data.frame(
+    from     = vars[idx[, 2L]],
+    to       = vars[idx[, 1L]],
+    beta     = beta1[idx],
+    se       = se1[idx],
+    p        = stage1_p[idx],
+    selected = support[idx],
+    row.names = NULL
+  )
 
   # ==========================================================================
   # Section 4: pass 2 -- refit the surviving cells WITHOUT a penalty
@@ -673,6 +730,8 @@ fitKIM <- function(data,
     support_was_external  = !is.null(support_ext),
     stage1_beta           = beta1,
     stage1_se             = se1,
+    stage1_p              = stage1_p,
+    edge_table            = edge_table,
     screen                = screen_used,
     screen_threshold      = screen_threshold,
     between_network       = between_net,

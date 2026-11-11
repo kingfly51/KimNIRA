@@ -76,6 +76,9 @@ kimStabilityBootstrap<-function(obj,data,n_boot=2000L,seed=2025L,
     # settings also stores output-only fields (e.g. support_was_external);
     # pass only actual fitKIM arguments, and keep an externally supplied support.
     args<-spec[intersect(names(spec),names(formals(fitKIM)))]
+    # Saved fits from <= 0.4.x may carry the pre-rename screen name; normalise
+    # once here so a bootstrap loop does not warn on every resample.
+    if(identical(args$screen,"significance"))args$screen<-"bonferroni"
     args$data<-boot;args$verbose<-FALSE;args$estimate_between<-FALSE
     if(isTRUE(fit$support_was_external)){
       args$support<-fit$support
