@@ -1,7 +1,7 @@
 Package: KimNIRA
 Type: Package
 Title: Kinetic Ising Model NodeIdentifyR Algorithm for Intensive Longitudinal Binary Networks
-Version: 0.4.0
+Version: 0.4.1
 Authors@R: person("Fei", "Wang", role = c("aut", "cre"),
     email = "bjnwangfei0501@outlook.com")
 Description: Estimates kinetic Ising models (first-order, synchronous, lagged
