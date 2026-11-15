@@ -476,10 +476,19 @@ kimPhaseStability <- function(land, conditions = NULL, threshold = NULL) {
 #' (baseline, transition matrix) pattern are solved once and replicated, but the
 #' returned data frame always has one row per person.
 #'
-#' @param fit A `"dynaNIRA_kim"` object from [fitKIM()].
+#' @param fit A `"dynaNIRA_kim"` object from [fitKIM()], or a
+#'   `"kim_nira_result"` from [runKIMNIRA()]. With a result, its fitted model
+#'   and per-target logit doses (`fit$delta`) are reused.
 #' @param threshold Integer K in `1..p`: the first phase is `K < threshold`, the
 #'   second `K >= threshold` (Cui et al.'s `split_value`). Default:
 #'   `ceiling(p / 2)`. The value affects only the phase split.
+#' @param target `NULL` (baseline) or one node name. When supplied, that node's
+#'   person-specific baseline is shifted by `delta`, i.e. the sustained
+#'   intervention used by [runKIMNIRA()]; the transition matrix is unchanged.
+#' @param delta Optional finite logit shift added to `target`'s baseline.
+#'   Required when `fit` is a [fitKIM()] fit and `target` is set. When `fit` is a
+#'   [runKIMNIRA()] result, the default is `fit$delta[target]`. Ignored for the
+#'   baseline (`target = NULL`).
 #' @return A data frame with one row per person (in the order of
 #'   `fit$person_ids`) and exactly four columns:
 #'   \describe{
@@ -491,15 +500,24 @@ kimPhaseStability <- function(land, conditions = NULL, threshold = NULL) {
 #'   }
 #'   The attributes `threshold`, `status` (the per-person
 #'   `.kim_phase_stability_q()` status, e.g. `"ok"` or
-#'   `"first:ok; second:no_facing_maximum"`), and `vars` are attached. A
-#'   numerical failure leaves the three values `NA` for that person and is
-#'   reported in `status`.
+#'   `"first:ok; second:no_facing_maximum"`), `vars`, `condition` (`"baseline"`
+#'   or the target node), `delta`, `baseline` (the same four columns without the
+#'   intervention), and `change` (`post - baseline`) are attached. A numerical
+#'   failure leaves the three values `NA` for that person and is reported in
+#'   `status`.
 #' @details Within each phase stability is `U(max) - U(min)` with
 #'   `U = -log P(K)`, using the same selection rule as [kimPhaseStability()].
 #'   Boundary extrema count, and a phase without a facing maximum gets
 #'   stability 0. With low symptom prevalence the high-activation phase often
 #'   has no facing maximum, so `stability2` is frequently 0 and
 #'   `stability_diff` then equals `stability1`; inspect the `status` attribute.
+#'
+#'   With `target`, the intervention is applied person by person exactly as
+#'   [runKIMNIRA()] does internally: the target's baseline is shifted by
+#'   `delta`, and the person's exact stationary distribution is re-solved. The
+#'   returned data frame is the post-intervention landscape; the corresponding
+#'   baseline and the person-level change are attached as `attr(,"baseline")`
+#'   and `attr(,"change")`.
 #'
 #'   Under `between_person = "re"` the transition matrix is shared by all
 #'   persons, so the per-person differences come only from the random
@@ -508,19 +526,34 @@ kimPhaseStability <- function(land, conditions = NULL, threshold = NULL) {
 #' @references Cui, J., Lunansky, G., Lichtwarck-Aschoff, A., Mendoza, N., &
 #'   Hasselman, F. (2026). Quantifying the stability landscapes of psychological
 #'   networks. Behavior Research Methods, 58, 68.
-#' @seealso [kimPhaseStability()], [kimBistability()], [kimMixing()]
+#' @seealso [kimPhaseStability()], [kimBistability()], [kimMixing()],
+#'   [runKIMNIRA()]
 #' @examples
 #' \dontrun{
 #' fit <- fitKIM(data, vars, id = "id", dayvar = "day", beepvar = "beep")
 #' ps <- kimPersonPhaseStability(fit, threshold = 3)
 #' head(ps)
 #' attr(ps, "status")
+#'
+#' res <- runKIMNIRA(fit, method = "exact", intervention_sd = 2,
+#'                   verbose = FALSE)
+#' pp_top <- kimPersonPhaseStability(res, target = res$ranked_targets[1],
+#'                                   threshold = 3)
+#' attr(pp_top, "baseline")   # same people, no intervention
+#' attr(pp_top, "change")     # post - baseline
 #' }
 #' @export
-kimPersonPhaseStability <- function(fit, threshold = NULL) {
-  if (!inherits(fit, "dynaNIRA_kim"))
-    stop("`fit` must come from fitKIM().", call. = FALSE)
-  vars <- fit$vars
+kimPersonPhaseStability <- function(fit, threshold = NULL,
+                                    target = NULL, delta = NULL) {
+  nira <- inherits(fit, "kim_nira_result")
+  if (nira) {
+    kim_fit <- fit$kim_fit
+  } else if (inherits(fit, "dynaNIRA_kim")) {
+    kim_fit <- fit
+  } else {
+    stop("`fit` must come from fitKIM() or runKIMNIRA().", call. = FALSE)
+  }
+  vars <- kim_fit$vars
   p <- length(vars)
   .kim_check_exact_p(p)
 
@@ -530,48 +563,98 @@ kimPersonPhaseStability <- function(fit, threshold = NULL) {
     stop("threshold must be an integer in 1..p.", call. = FALSE)
   threshold <- as.integer(threshold)
 
-  pat <- .kim_patterns(fit)
+  # Baseline = no target. A target is one node; delta is its logit shift.
+  condition <- "baseline"
+  if (!is.null(target)) {
+    if (length(target) != 1L || !is.character(target) || !target %in% vars)
+      stop("`target` must be NULL or one node name.", call. = FALSE)
+    condition <- target
+    if (is.null(delta)) {
+      if (!nira)
+        stop("Supply `delta` when `fit` is a fitKIM() fit and `target` is set.",
+             call. = FALSE)
+      delta <- unname(fit$delta[target])
+    }
+    if (length(delta) != 1L || !is.finite(delta))
+      stop("`delta` must be one finite number.", call. = FALSE)
+  } else {
+    if (!is.null(delta) && length(delta) == 1L && is.finite(delta) && delta != 0)
+      warning("`target` is NULL; `delta` is ignored (baseline).", call. = FALSE)
+    delta <- 0
+  }
+
+  pat <- .kim_patterns(kim_fit)
   bs  <- pat$baselines
   n_pat <- length(pat$index)
-  pids <- if (is.null(fit$person_ids)) NULL else as.character(fit$person_ids)
+  pids <- if (is.null(kim_fit$person_ids)) NULL else
+    as.character(kim_fit$person_ids)
   if (is.null(pids)) pids <- rownames(bs)
   if (is.null(pids)) pids <- as.character(seq_len(nrow(bs)))
 
-  st <- matrix(NA_real_, n_pat, 3L,
-               dimnames = list(NULL, c("stability1", "stability2",
-                                       "stability_diff")))
-  status <- rep(NA_character_, n_pat)
-
-  for (kk in seq_len(n_pat)) {
-    k <- pat$index[kk]
-    tr <- tryCatch(.kim_transition(.kim_J_for(fit, k), bs[k, ]),
-                   error = function(e) e)
-    if (inherits(tr, "error")) {
-      status[kk] <- paste0("transition_failed: ", conditionMessage(tr))
-      next
-    }
+  # One person's phase stability for a given baseline.
+  phase_one <- function(Jk, b) {
+    tr <- tryCatch(.kim_transition(Jk, b), error = function(e) e)
+    if (inherits(tr, "error"))
+      return(list(v = c(NA_real_, NA_real_, NA_real_),
+                  status = paste0("transition_failed: ", conditionMessage(tr))))
     stat <- tryCatch(.kim_stationary(tr$P), error = function(e) e)
-    if (inherits(stat, "error")) {
-      status[kk] <- paste0("stationary_failed: ", conditionMessage(stat))
-      next
-    }
+    if (inherits(stat, "error"))
+      return(list(v = c(NA_real_, NA_real_, NA_real_),
+                  status = paste0("stationary_failed: ", conditionMessage(stat))))
     K <- 0:p
     q <- as.numeric(tapply(stat$pi, factor(rowSums(tr$states), levels = K), sum))
     q <- q / sum(q)
     r <- .kim_phase_stability_q(q, threshold)
-    st[kk, ] <- c(r$stability1, r$stability2, r$stability_diff)
-    status[kk] <- r$status
+    list(v = c(r$stability1, r$stability2, r$stability_diff),
+         status = r$status)
   }
 
-  per_person <- st[pat$pattern, , drop = FALSE]
-  status_person <- status[pat$pattern]
-  out <- data.frame(id = pids, per_person, stringsAsFactors = FALSE)
-  rownames(out) <- NULL
-  attr(out, "threshold") <- threshold
-  attr(out, "status")    <- status_person
-  attr(out, "vars")      <- vars
+  base_v <- matrix(NA_real_, n_pat, 3L)
+  post_v <- matrix(NA_real_, n_pat, 3L)
+  base_status <- post_status <- rep(NA_character_, n_pat)
 
-  failed <- which(is.na(per_person[, "stability1"]))
+  for (kk in seq_len(n_pat)) {
+    k  <- pat$index[kk]
+    Jk <- .kim_J_for(kim_fit, k)
+    b0 <- bs[k, ]
+    b1 <- b0
+    if (condition != "baseline") b1[target] <- b1[target] + delta
+
+    base <- phase_one(Jk, b0)
+    base_v[kk, ] <- base$v
+    base_status[kk] <- base$status
+
+    if (condition == "baseline") {
+      post_v[kk, ] <- base$v
+      post_status[kk] <- base$status
+    } else {
+      post <- phase_one(Jk, b1)
+      post_v[kk, ] <- post$v
+      post_status[kk] <- post$status
+    }
+  }
+  colnames(base_v) <- colnames(post_v) <-
+    c("stability1", "stability2", "stability_diff")
+
+  base_out <- data.frame(id = pids, base_v[pat$pattern, , drop = FALSE],
+                         stringsAsFactors = FALSE)
+  post_out <- data.frame(id = pids, post_v[pat$pattern, , drop = FALSE],
+                         stringsAsFactors = FALSE)
+  change_out <- data.frame(
+    id = pids,
+    post_v[pat$pattern, , drop = FALSE] - base_v[pat$pattern, , drop = FALSE],
+    stringsAsFactors = FALSE)
+  rownames(base_out) <- rownames(post_out) <- rownames(change_out) <- NULL
+
+  attr(post_out, "threshold") <- threshold
+  attr(post_out, "status")    <- post_status[pat$pattern]
+  attr(post_out, "vars")      <- vars
+  attr(post_out, "condition") <- condition
+  attr(post_out, "delta")     <- delta
+  attr(post_out, "baseline")  <- base_out
+  attr(post_out, "change")    <- change_out
+
+  failed <- which(is.na(post_v[pat$pattern, "stability1"]))
   if (length(failed)) {
     show <- utils::head(pids[failed], 5L)
     warning("Phase stability could not be computed for ", length(failed),
@@ -579,7 +662,7 @@ kimPersonPhaseStability <- function(fit, threshold = NULL) {
             if (length(failed) > length(show)) ", ..." else "",
             ". Their values are NA; see attr(x, 'status').", call. = FALSE)
   }
-  out
+  post_out
 }
 
 
