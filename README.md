@@ -297,6 +297,13 @@ pp <- kimPersonPhaseStability(fit, threshold = 3)
 head(pp)                          # n_persons x 4: id + stability1/2/diff
 table(attr(pp, "status"))         # 每人的求解 / 相状态
 
+# 干预后的逐被试稳定性：直接传入 runKIMNIRA() 结果
+pp_iv <- kimPersonPhaseStability(res, target = res$ranked_targets[1],
+                                 threshold = 3)
+head(pp_iv)
+head(attr(pp_iv, "baseline"))     # 同一批人的基线
+head(attr(pp_iv, "change"))       # post - baseline
+
 # 同期依赖（条件独立假设）
 cont <- kimContemporaneousCheck(fit, ema_long)
 print(cont)
@@ -357,7 +364,7 @@ kim_trajectory(J, h, n_steps = 30, n_sim = 5000)
 | `kimDeltaPlot()` | 效应柱状图 + CI + 显著性星号 |
 | `kimBistability()` | 稳态景观、众数、势垒、谱证据 |
 | `kimPhaseStability()` | 各条件（基线/干预）的 Cui et al. (2026) 相稳定性指标 |
-| `kimPersonPhaseStability()` | 逐被试 Cui 相稳定性（n_persons × 4：`id` + `stability1/2/diff`） |
+| `kimPersonPhaseStability()` | 逐被试 Cui 相稳定性；也可对 `runKIMNIRA()` 结果算干预后逐人指标（n_persons × 4） |
 | `kimPlotLandscape()` | 景观图（势能 / 概率） |
 | `kimMixing()` | 第二特征值模与弛豫时间 |
 | `kimDoseResponse()` | 剂量-反应与等概率剂量排序 |
@@ -400,8 +407,13 @@ system.file("tutorials/tutorial_kimNIRA.R", package = "KimNIRA")
 
 - 新增导出函数 `kimPersonPhaseStability()`：逐被试的 Cui et al. (2026) 相稳定性，
   返回 n_persons × 4 数据框（`id`, `stability1`, `stability2`, `stability_diff`）；
+- `kimPersonPhaseStability()` 新增 `target` / `delta` 参数，可直接传入
+  `runKIMNIRA()` 的结果，得到逐被试的**干预后**相稳定性；
+  `attr(x, "baseline")` 与 `attr(x, "change")` 给出基线和个体变化量；
+- 干预后的逐人 q 混合与 `kimBistability(res)` 完全一致；
 - `.kim_patterns()` 额外返回 `pattern`，用于逐人计算时按模式去重；
-- 回归测试新增逐人维度、数值一致性与参数校验。
+- 回归测试新增逐人维度、数值一致性、干预后维度、delta 复用、
+  baseline/change 恒等式与参数校验。
 
 **0.4.1 的主要变化：**
 
