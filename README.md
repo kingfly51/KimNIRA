@@ -1,4 +1,4 @@
-# KimNIRA 0.4.0
+# KimNIRA 0.4.2
 
 **Kinetic Ising Model + NodeIdentifyR Algorithm**  
 用于**二元密集纵向数据**（如经验取样法 EMA / ESM）的动力学网络建模与稳态干预分析。
@@ -54,7 +54,7 @@ pkgload::load_all("path/to/KimNIRA")
 
 ```r
 library(KimNIRA)
-packageVersion("KimNIRA")   # 0.4.0
+packageVersion("KimNIRA")   # 0.4.2
 ```
 
 ---
@@ -292,6 +292,11 @@ ps <- kimPhaseStability(land)
 print(ps)                         # stability1, stability2, stability_diff
 kimPhaseStability(land, threshold = 3)  # 固定截断值
 
+# 逐被试的 Cui 相稳定性（与个体层面变量做相关时用）
+pp <- kimPersonPhaseStability(fit, threshold = 3)
+head(pp)                          # n_persons x 4: id + stability1/2/diff
+table(attr(pp, "status"))         # 每人的求解 / 相状态
+
 # 同期依赖（条件独立假设）
 cont <- kimContemporaneousCheck(fit, ema_long)
 print(cont)
@@ -352,6 +357,7 @@ kim_trajectory(J, h, n_steps = 30, n_sim = 5000)
 | `kimDeltaPlot()` | 效应柱状图 + CI + 显著性星号 |
 | `kimBistability()` | 稳态景观、众数、势垒、谱证据 |
 | `kimPhaseStability()` | 各条件（基线/干预）的 Cui et al. (2026) 相稳定性指标 |
+| `kimPersonPhaseStability()` | 逐被试 Cui 相稳定性（n_persons × 4：`id` + `stability1/2/diff`） |
 | `kimPlotLandscape()` | 景观图（势能 / 概率） |
 | `kimMixing()` | 第二特征值模与弛豫时间 |
 | `kimDoseResponse()` | 剂量-反应与等概率剂量排序 |
@@ -389,6 +395,13 @@ system.file("tutorials/tutorial_kimNIRA.R", package = "KimNIRA")
 ---
 
 ## 版本说明
+
+**0.4.2 的主要变化：**
+
+- 新增导出函数 `kimPersonPhaseStability()`：逐被试的 Cui et al. (2026) 相稳定性，
+  返回 n_persons × 4 数据框（`id`, `stability1`, `stability2`, `stability_diff`）；
+- `.kim_patterns()` 额外返回 `pattern`，用于逐人计算时按模式去重；
+- 回归测试新增逐人维度、数值一致性与参数校验。
 
 **0.4.1 的主要变化：**
 
