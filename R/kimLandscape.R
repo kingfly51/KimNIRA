@@ -465,6 +465,124 @@ kimPhaseStability <- function(land, conditions = NULL, threshold = NULL) {
 }
 
 
+#' Per-person phase stability of a fitted KIM (Cui et al., 2026)
+#'
+#' Extracts the two phase-stability indicators and their difference for every
+#' person in a fitted kinetic Ising model. Unlike [kimPhaseStability()], which
+#' scores the population mixture stored in a `"kim_bistability"` object, this
+#' function solves each person's own stationary distribution: person k uses
+#' baseline `h + person_shifts[k, ]` and, when the fit carries them,
+#' person-specific slopes from `person_J`. Persons sharing the same
+#' (baseline, transition matrix) pattern are solved once and replicated, but the
+#' returned data frame always has one row per person.
+#'
+#' @param fit A `"dynaNIRA_kim"` object from [fitKIM()].
+#' @param threshold Integer K in `1..p`: the first phase is `K < threshold`, the
+#'   second `K >= threshold` (Cui et al.'s `split_value`). Default:
+#'   `ceiling(p / 2)`. The value affects only the phase split.
+#' @return A data frame with one row per person (in the order of
+#'   `fit$person_ids`) and exactly four columns:
+#'   \describe{
+#'     \item{`id`}{Person ID, matching `fit$person_ids`.}
+#'     \item{`stability1`}{Stability of the low-activation phase (`K < threshold`).}
+#'     \item{`stability2`}{Stability of the high-activation phase (`K >= threshold`).}
+#'     \item{`stability_diff`}{`stability1 - stability2`; positive means the
+#'       low-activation phase is more stable.}
+#'   }
+#'   The attributes `threshold`, `status` (the per-person
+#'   `.kim_phase_stability_q()` status, e.g. `"ok"` or
+#'   `"first:ok; second:no_facing_maximum"`), and `vars` are attached. A
+#'   numerical failure leaves the three values `NA` for that person and is
+#'   reported in `status`.
+#' @details Within each phase stability is `U(max) - U(min)` with
+#'   `U = -log P(K)`, using the same selection rule as [kimPhaseStability()].
+#'   Boundary extrema count, and a phase without a facing maximum gets
+#'   stability 0. With low symptom prevalence the high-activation phase often
+#'   has no facing maximum, so `stability2` is frequently 0 and
+#'   `stability_diff` then equals `stability1`; inspect the `status` attribute.
+#'
+#'   Under `between_person = "re"` the transition matrix is shared by all
+#'   persons, so the per-person differences come only from the random
+#'   intercepts. Their values are empirical-Bayes quantities and are not
+#'   independent of the population parameters.
+#' @references Cui, J., Lunansky, G., Lichtwarck-Aschoff, A., Mendoza, N., &
+#'   Hasselman, F. (2026). Quantifying the stability landscapes of psychological
+#'   networks. Behavior Research Methods, 58, 68.
+#' @seealso [kimPhaseStability()], [kimBistability()], [kimMixing()]
+#' @examples
+#' \dontrun{
+#' fit <- fitKIM(data, vars, id = "id", dayvar = "day", beepvar = "beep")
+#' ps <- kimPersonPhaseStability(fit, threshold = 3)
+#' head(ps)
+#' attr(ps, "status")
+#' }
+#' @export
+kimPersonPhaseStability <- function(fit, threshold = NULL) {
+  if (!inherits(fit, "dynaNIRA_kim"))
+    stop("`fit` must come from fitKIM().", call. = FALSE)
+  vars <- fit$vars
+  p <- length(vars)
+  .kim_check_exact_p(p)
+
+  if (is.null(threshold)) threshold <- as.integer(ceiling(p / 2))
+  if (length(threshold) != 1L || is.na(threshold) || !is.finite(threshold) ||
+      threshold != round(threshold) || threshold < 1 || threshold > p)
+    stop("threshold must be an integer in 1..p.", call. = FALSE)
+  threshold <- as.integer(threshold)
+
+  pat <- .kim_patterns(fit)
+  bs  <- pat$baselines
+  n_pat <- length(pat$index)
+  pids <- if (is.null(fit$person_ids)) NULL else as.character(fit$person_ids)
+  if (is.null(pids)) pids <- rownames(bs)
+  if (is.null(pids)) pids <- as.character(seq_len(nrow(bs)))
+
+  st <- matrix(NA_real_, n_pat, 3L,
+               dimnames = list(NULL, c("stability1", "stability2",
+                                       "stability_diff")))
+  status <- rep(NA_character_, n_pat)
+
+  for (kk in seq_len(n_pat)) {
+    k <- pat$index[kk]
+    tr <- tryCatch(.kim_transition(.kim_J_for(fit, k), bs[k, ]),
+                   error = function(e) e)
+    if (inherits(tr, "error")) {
+      status[kk] <- paste0("transition_failed: ", conditionMessage(tr))
+      next
+    }
+    stat <- tryCatch(.kim_stationary(tr$P), error = function(e) e)
+    if (inherits(stat, "error")) {
+      status[kk] <- paste0("stationary_failed: ", conditionMessage(stat))
+      next
+    }
+    K <- 0:p
+    q <- as.numeric(tapply(stat$pi, factor(rowSums(tr$states), levels = K), sum))
+    q <- q / sum(q)
+    r <- .kim_phase_stability_q(q, threshold)
+    st[kk, ] <- c(r$stability1, r$stability2, r$stability_diff)
+    status[kk] <- r$status
+  }
+
+  per_person <- st[pat$pattern, , drop = FALSE]
+  status_person <- status[pat$pattern]
+  out <- data.frame(id = pids, per_person, stringsAsFactors = FALSE)
+  rownames(out) <- NULL
+  attr(out, "threshold") <- threshold
+  attr(out, "status")    <- status_person
+  attr(out, "vars")      <- vars
+
+  failed <- which(is.na(per_person[, "stability1"]))
+  if (length(failed)) {
+    show <- utils::head(pids[failed], 5L)
+    warning("Phase stability could not be computed for ", length(failed),
+            " person(s): ", paste(show, collapse = ", "),
+            if (length(failed) > length(show)) ", ..." else "",
+            ". Their values are NA; see attr(x, 'status').", call. = FALSE)
+  }
+  out
+}
+
+
 #' Plot the stationary stability landscape U(K) = -log P(K)
 #'
 #' @param x A `"kim_bistability"` object.

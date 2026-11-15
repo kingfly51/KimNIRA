@@ -142,7 +142,7 @@
   keys <- paste(bkey, jkey, sep = "@@")
   first <- !duplicated(keys); rep_idx <- which(first)
   list(index = rep_idx, weights = tabulate(match(keys, keys[first])) / nrow(bs),
-       baselines = bs)
+       baselines = bs, pattern = match(keys, keys[first]))
 }
 
 # Exact stationary intervention effects. `delta` is a scalar (one dose for every
