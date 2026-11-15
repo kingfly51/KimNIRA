@@ -4,14 +4,25 @@
 \alias{kimPersonPhaseStability}
 \title{Per-person phase stability of a fitted KIM (Cui et al., 2026)}
 \usage{
-kimPersonPhaseStability(fit, threshold = NULL)
+kimPersonPhaseStability(fit, threshold = NULL, target = NULL, delta = NULL)
 }
 \arguments{
-\item{fit}{A `"dynaNIRA_kim"` object from [fitKIM()].}
+\item{fit}{A `"dynaNIRA_kim"` object from [fitKIM()], or a
+`"kim_nira_result"` from [runKIMNIRA()]. With a result, its fitted model
+and per-target logit doses (`fit$delta`) are reused.}
 
 \item{threshold}{Integer K in `1..p`: the first phase is `K < threshold`, the
 second `K >= threshold` (Cui et al.'s `split_value`). Default:
 `ceiling(p / 2)`. The value affects only the phase split.}
+
+\item{target}{`NULL` (baseline) or one node name. When supplied, that node's
+person-specific baseline is shifted by `delta`, i.e. the sustained
+intervention used by [runKIMNIRA()]; the transition matrix is unchanged.}
+
+\item{delta}{Optional finite logit shift added to `target`'s baseline.
+Required when `fit` is a [fitKIM()] fit and `target` is set. When `fit` is a
+[runKIMNIRA()] result, the default is `fit$delta[target]`. Ignored for the
+baseline (`target = NULL`).}
 }
 \value{
 A data frame with one row per person (in the order of
@@ -25,9 +36,11 @@ A data frame with one row per person (in the order of
   }
   The attributes `threshold`, `status` (the per-person
   `.kim_phase_stability_q()` status, e.g. `"ok"` or
-  `"first:ok; second:no_facing_maximum"`), and `vars` are attached. A
-  numerical failure leaves the three values `NA` for that person and is
-  reported in `status`.
+  `"first:ok; second:no_facing_maximum"`), `vars`, `condition` (`"baseline"`
+  or the target node), `delta`, `baseline` (the same four columns without the
+  intervention), and `change` (`post - baseline`) are attached. A numerical
+  failure leaves the three values `NA` for that person and is reported in
+  `status`.
 }
 \description{
 Extracts the two phase-stability indicators and their difference for every
@@ -47,6 +60,13 @@ Within each phase stability is `U(max) - U(min)` with
   has no facing maximum, so `stability2` is frequently 0 and
   `stability_diff` then equals `stability1`; inspect the `status` attribute.
 
+  With `target`, the intervention is applied person by person exactly as
+  [runKIMNIRA()] does internally: the target's baseline is shifted by
+  `delta`, and the person's exact stationary distribution is re-solved. The
+  returned data frame is the post-intervention landscape; the corresponding
+  baseline and the person-level change are attached as `attr(,"baseline")`
+  and `attr(,"change")`.
+
   Under `between_person = "re"` the transition matrix is shared by all
   persons, so the per-person differences come only from the random
   intercepts. Their values are empirical-Bayes quantities and are not
@@ -58,5 +78,6 @@ Cui, J., Lunansky, G., Lichtwarck-Aschoff, A., Mendoza, N., &
   networks. Behavior Research Methods, 58, 68.
 }
 \seealso{
-[kimPhaseStability()], [kimBistability()], [kimMixing()]
+[kimPhaseStability()], [kimBistability()], [kimMixing()],
+  [runKIMNIRA()]
 }
